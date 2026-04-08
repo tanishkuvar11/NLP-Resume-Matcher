@@ -1,74 +1,127 @@
 import pandas as pd
-import pickle
-
-from utils.embedding_utils import load_model, compute_semantic_scores
-from utils.skill_utils import parse_skills, compute_skill_scores
-from utils.degree_utils import passes_degree_filter
+from utils.embedding_utils import load_model
 from utils.scoring_utils import compute_final_score
+from utils.skill_utils import compute_skill_scores, parse_skills
+from utils.degree_utils import passes_degree_filter
+from sklearn.metrics.pairwise import cosine_similarity
+from preprocessing.prepare_resume_corpus import preprocess_resume_dataframe
 
-resumes = pd.read_csv("data/resume_metadata.csv")
-
-with open("data/resume_embeddings.pkl", "rb") as f:
-    resume_embeddings = pickle.load(f)
 
 model = load_model()
 
-job_title = "Web Developer"
-required_skills = {"php", "mysql", "html", "css"}
-preferred_skills = {"laravel", "jquery", "rest"}
-required_degree_level = None
 
-query_text = (
-    job_title.lower() + " " +
-    " ".join(required_skills) + " " +
-    " ".join(preferred_skills)
-)
+def process_uploaded_resumes(
+    df,
+    job_title,
+    required_skills,
+    preferred_skills=None,
+    required_degree_level=None,
+    top_k=5
+):
+    df = preprocess_resume_dataframe(df)
 
-semantic_scores = compute_semantic_scores(
-    model,
-    query_text,
-    resume_embeddings
-)
+    if preferred_skills is None:
+        preferred_skills = set()
 
-results = []
-
-for idx, row in resumes.iterrows():
-
-    if not passes_degree_filter(row, required_degree_level):
-        continue
-
-    resume_skills = parse_skills(row["skills_clean"])
-
-    skill_result = compute_skill_scores(
-        resume_skills,
-        required_skills,
-        preferred_skills
+    # build query
+    query_text = (
+        job_title.lower() + " " +
+        " ".join(required_skills) + " " +
+        " ".join(preferred_skills)
     )
 
-    if skill_result is None:
-        continue
+    query_embedding = model.encode([query_text])
 
-    matched_required, matched_preferred, required_score, preferred_score = skill_result
+    # embed resumes
+    resume_texts = df["full_resume_text"].tolist()
+    resume_embeddings = model.encode(resume_texts)
 
-    semantic_score = semantic_scores[idx]
+    semantic_scores = cosine_similarity(
+        query_embedding,
+        resume_embeddings
+    )[0]
 
-    final_score = compute_final_score(
-        semantic_score,
-        required_score,
-        preferred_score
+    results = []
+
+    for idx, row in df.iterrows():
+
+        if "degree_names_clean" in row:
+            if not passes_degree_filter(
+                row,
+                required_degree_level
+            ):
+                continue
+
+        # handle skills
+        if "skills_clean" in row:
+            resume_skills = parse_skills(
+                row["skills_clean"]
+            )
+        else:
+            resume_skills = set()
+
+        skill_result = compute_skill_scores(
+            resume_skills,
+            required_skills,
+            preferred_skills
+        )
+
+        if skill_result is None:
+            continue
+
+        (
+            matched_required,
+            matched_preferred,
+            required_score,
+            preferred_score
+        ) = skill_result
+
+        semantic_score = semantic_scores[idx]
+
+        final_score = compute_final_score(
+            semantic_score,
+            required_score,
+            preferred_score
+        )
+
+        results.append({
+            "resume_index": idx,
+            "final_score": round(final_score * 100, 2),
+            "semantic_score": round(semantic_score * 100, 2),
+            "required_score": round(required_score * 100, 2),
+            "preferred_score": round(preferred_score * 100, 2),
+            "matched_required": list(matched_required),
+            "matched_preferred": list(matched_preferred)
+        })
+
+    results = sorted(
+        results,
+        key=lambda x: x["final_score"],
+        reverse=True
     )
 
-    results.append({
-        "resume_id": row["resume_id"],
-        "final_score": final_score,
-        "semantic_score": semantic_score,
-        "required_score": required_score,
-        "preferred_score": preferred_score,
-        "matched_required": list(matched_required),
-        "matched_preferred": list(matched_preferred)
-    })
+    return pd.DataFrame(results[:top_k])
 
-results = sorted(results, key=lambda x: x["final_score"], reverse=True)
+if __name__ == "__main__":
+    import pandas as pd
 
-for r in results[:5]:
-    print(r)
+    df = pd.read_csv("datasets/resume_data.csv")
+
+    result = process_uploaded_resumes(
+        df=df,
+        job_title="NLP Engineer",
+        required_skills={
+            "python",
+            "machine learning",
+            "nlp"
+        },
+        preferred_skills={
+            "sql",
+            "pytorch",
+            "transformers"
+        },
+        top_k=5
+    )
+
+    print("\nTop Candidates:\n")
+    print(result.to_string(index=False))

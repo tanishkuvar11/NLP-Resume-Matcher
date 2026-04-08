@@ -1,0 +1,11 @@
+streamlit
+numpy==1.26.4
+pandas
+scikit-learn
+sentence-transformers==2.7.0
+PyPDF2
+groq
+python-dotenv
+torch==2.2.2
+torchvision==0.17.2
+transformers==4.41.2

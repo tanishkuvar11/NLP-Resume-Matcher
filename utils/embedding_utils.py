@@ -1,8 +1,14 @@
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+import streamlit as st
+from sentence_transformers import SentenceTransformer
 
+
+@st.cache_resource
 def load_model():
-    return SentenceTransformer("all-MiniLM-L6-v2")
+    return SentenceTransformer(
+        "sentence-transformers/all-MiniLM-L6-v2"
+    )
 
 def compute_semantic_scores(model, query_text, resume_embeddings):
     query_embedding = model.encode([query_text])
