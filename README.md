@@ -1,4 +1,3 @@
-````markdown
 # NLP + LLM Resume Matcher
 
 An end-to-end NLP + LLM powered web application for intelligent resume screening, candidate ranking, and personalized resume feedback.
